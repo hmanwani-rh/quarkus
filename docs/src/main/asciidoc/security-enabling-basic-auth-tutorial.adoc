@@ -1,7 +1,7 @@
 [id="security-enabling-basic-auth-tutorial"]
 = Enabling Basic Authentication
 
-This section describes how you can enable the Basic Authentication for your Quarkus project.
+The following tutorial describes how to enable the Basic Authentication for your Quarkus project and allow users to authenticate with a username and password.
  
 .Prerequisites
  
