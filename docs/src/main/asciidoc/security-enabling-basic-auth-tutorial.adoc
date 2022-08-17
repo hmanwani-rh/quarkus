@@ -1,7 +1,7 @@
 [id="security-enabling-basic-auth-tutorial"]
-= Enabling Basic Authentication
+= Enable Basic Authentication
 
-The following tutorial describes how to enable the Basic Authentication for your Quarkus project and allow users to authenticate with a username and password.
+Enable the Basic Authentication for your Quarkus project and allow users to authenticate with a username and password.
  
 .Prerequisites
  
@@ -18,7 +18,7 @@ quarkus.http.auth.basic=true
  
 For a Basic Authentication configuration walk-through that uses `JPA`, see the xref:security-getting-started.adoc[Getting Started With Security] guide.
  
-.Additional resources
+== Additional resources
  
 * xref:security.adoc#identity-providers[Security Identity Providers]
 * xref:security-testing.adoc#configuring-user-information[Configuring User Information in application.properties]
