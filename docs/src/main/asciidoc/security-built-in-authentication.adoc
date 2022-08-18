@@ -11,7 +11,7 @@ The following section describes the Quarkus built-in authentication mechanisms f
 
 include::security-basic-auth-concept.adoc[leveloffset=+1]
 
-include::security-enabling-basic-auth-tutorial.adoc[leveloffset=+2]
+include::security-enabling-basic-auth-howto.adoc[leveloffset=+2]
 
 
 [[form-auth]]

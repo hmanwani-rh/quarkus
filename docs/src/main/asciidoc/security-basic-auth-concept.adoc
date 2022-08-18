@@ -10,7 +10,7 @@ The header is specified as `Authorization: Basic <credentials>`, where credentia
 ====
 .Example
  
-If the user name is `Alice` and the password is `secret`, the HTTP authorization header looks authorization as `Authorization: Basic  QWxjZTpzZWNyZXQ=`, where `QWxjZTpzZWNyZXQ=` is a Base64 encoded representation of the `Alice:secret` string.
+If the user name is `Alice` and the password is `secret`, the HTTP authorization header would be `Authorization: Basic QWxjZTpzZWNyZXQ=`, where `QWxjZTpzZWNyZXQ=` is a Base64 encoded representation of the `Alice:secret` string.
 ====
  
 The Basic Authentication mechanism does not provide confidentiality protection for the transmitted credentials. 
@@ -38,7 +38,7 @@ In Basic Authentication, a username and password need to be sent with each reque
 Application complexity increases::
 +
 --
-The Quarkus application itself needs to validate that usernames, passwords, and roles are managed securely.
-This can introduce significant complexity to the application.
-Depending on the use case, other authenticatio mechanisms delegate username, password, and role management to specialized services.
+The Quarkus application must validate that usernames, passwords, and roles are managed securely.
+This process, however, can introduce significant complexity to the application.
+Depending on the use case, other authentication mechanisms delegate username, password, and role management to specialized services.
 --
