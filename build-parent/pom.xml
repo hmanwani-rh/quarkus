@@ -20,8 +20,8 @@
         <!-- These properties are needed in order for them to be resolvable by the generated projects -->
         <!-- Quarkus uses jboss-parent and it comes with 3.8.1-jboss-1, we don't want that in the templates -->
         <compiler-plugin.version>3.8.1</compiler-plugin.version>
-        <kotlin.version>1.6.21</kotlin.version>
-        <dokka.version>1.6.21</dokka.version>
+        <kotlin.version>1.7.10</kotlin.version>
+        <dokka.version>1.7.10</dokka.version>
         <scala.version>2.13.8</scala.version>
         <scala-maven-plugin.version>4.7.1</scala-maven-plugin.version>
         <!-- not pretty but this is used in the codestarts and we don't want to break compatibility -->
@@ -40,8 +40,8 @@
         <!-- These properties are needed in order for them to be resolvable by the documentation -->
         <!-- The Graal version we suggest using in documentation - as that's
            what we work with by self downloading it: -->
-        <graal-sdk.version-for-documentation>22.1.0</graal-sdk.version-for-documentation>
-        <mandrel.version-for-documentation>22.1</mandrel.version-for-documentation>
+        <graal-sdk.version-for-documentation>22.2.0</graal-sdk.version-for-documentation>
+        <mandrel.version-for-documentation>22.2</mandrel.version-for-documentation>
 
         <asciidoctorj.version>2.5.5</asciidoctorj.version>
         <htmlunit.version>2.40.0</htmlunit.version>
@@ -124,7 +124,7 @@
 
 
         <asciidoctor-maven-plugin.version>2.0.0</asciidoctor-maven-plugin.version>
-        <docker-maven-plugin.version>0.40.1</docker-maven-plugin.version>
+        <docker-maven-plugin.version>0.40.2</docker-maven-plugin.version>
         <formatter-maven-plugin.version>2.20.0</formatter-maven-plugin.version>
         <impsort-maven-plugin.version>1.7.0</impsort-maven-plugin.version>
         <maven-invoker-plugin.version>3.2.2</maven-invoker-plugin.version>

@@ -702,6 +702,12 @@ public class NativeImageBuildStep {
 
                 //address https://github.com/quarkusio/quarkus-quickstarts/issues/993
                 nativeImageArgs.add("-J--add-opens=java.base/java.text=ALL-UNNAMED");
+                // kogito-dmn-quickstart is failing if we don't have this
+                nativeImageArgs.add("-J--add-opens=java.base/java.io=ALL-UNNAMED");
+                // mybatis extension
+                nativeImageArgs.add("-J--add-opens=java.base/java.lang.invoke=ALL-UNNAMED");
+                // required by camel-quarkus-xstream
+                nativeImageArgs.add("-J--add-opens=java.base/java.util=ALL-UNNAMED");
 
                 if (nativeConfig.enableReports) {
                     if (graalVMVersion.isOlderThan(GraalVM.Version.VERSION_21_3_2)) {
@@ -709,6 +715,15 @@ public class NativeImageBuildStep {
                     } else {
                         nativeImageArgs.add("-H:PrintAnalysisCallTreeType=CSV");
                     }
+                }
+
+                // only available in GraalVM 22.3.0 and better.
+                if (graalVMVersion.compareTo(GraalVM.Version.VERSION_22_3_0) >= 0) {
+                    // For build time information
+                    nativeImageArgs.add("-H:+CollectImageBuildStatistics");
+                    nativeImageArgs.add("-H:ImageBuildStatisticsFile=" + nativeImageName + "-timing-stats.json");
+                    // For getting the build output stats as a JSON file
+                    nativeImageArgs.add("-H:BuildOutputJSONFile=" + nativeImageName + "-build-output-stats.json");
                 }
 
                 /*
@@ -720,7 +735,6 @@ public class NativeImageBuildStep {
 
                 nativeImageArgs.add(
                         "-H:InitialCollectionPolicy=com.oracle.svm.core.genscavenge.CollectionPolicy$BySpaceAndTime"); //the default collection policy results in full GC's 50% of the time
-                nativeImageArgs.add("-H:+JNI");
                 nativeImageArgs.add("-H:+AllowFoldMethods");
 
                 if (nativeConfig.headless) {

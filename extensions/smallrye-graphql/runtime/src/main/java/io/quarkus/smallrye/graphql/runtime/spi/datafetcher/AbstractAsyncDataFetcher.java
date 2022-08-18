@@ -10,6 +10,7 @@ import graphql.schema.DataFetchingEnvironment;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ManagedContext;
 import io.smallrye.graphql.SmallRyeGraphQLServerMessages;
+import io.smallrye.graphql.execution.context.SmallRyeContextManager;
 import io.smallrye.graphql.execution.datafetcher.AbstractDataFetcher;
 import io.smallrye.graphql.schema.model.Operation;
 import io.smallrye.graphql.schema.model.Type;
@@ -29,34 +30,55 @@ public abstract class AbstractAsyncDataFetcher<K, T> extends AbstractDataFetcher
             DataFetcherResult.Builder<Object> resultBuilder,
             Object[] transformedArguments) throws Exception {
 
-        Uni<?> uni = handleUserMethodCall(dfe, transformedArguments);
-        return (O) uni
-                .onItemOrFailure()
-                .transformToUni((result, throwable, emitter) -> {
-                    if (throwable != null) {
-                        eventEmitter.fireOnDataFetchError(dfe.getExecutionId().toString(), throwable);
-                        if (throwable instanceof GraphQLException) {
-                            GraphQLException graphQLException = (GraphQLException) throwable;
-                            errorResultHelper.appendPartialResult(resultBuilder, dfe, graphQLException);
-                        } else if (throwable instanceof Exception) {
-                            emitter.fail(SmallRyeGraphQLServerMessages.msg.dataFetcherException(operation, throwable));
-                            return;
-                        } else if (throwable instanceof Error) {
-                            emitter.fail(throwable);
-                            return;
-                        }
-                    } else {
-                        try {
-                            resultBuilder.data(fieldHelper.transformOrAdaptResponse(result, dfe));
-                        } catch (AbstractDataFetcherException te) {
-                            te.appendDataFetcherResult(resultBuilder, dfe);
-                        }
-                    }
+        ManagedContext requestContext = Arc.container().requestContext();
+        try {
+            RequestContextHelper.reactivate(requestContext, dfe);
+            Uni<?> uni = handleUserMethodCall(dfe, transformedArguments);
+            return (O) uni
+                    .onItemOrFailure()
+                    .transformToUni((result, throwable, emitter) -> {
 
-                    emitter.complete(resultBuilder.build());
-                })
-                .subscribe()
-                .asCompletionStage();
+                        emitter.onTermination(() -> {
+                            deactivate(requestContext);
+                        });
+
+                        if (throwable != null) {
+                            eventEmitter.fireOnDataFetchError(dfe.getExecutionId().toString(), throwable);
+                            if (throwable instanceof GraphQLException) {
+                                GraphQLException graphQLException = (GraphQLException) throwable;
+                                errorResultHelper.appendPartialResult(resultBuilder, dfe, graphQLException);
+                            } else if (throwable instanceof Exception) {
+                                emitter.fail(SmallRyeGraphQLServerMessages.msg.dataFetcherException(operation, throwable));
+                                return;
+                            } else if (throwable instanceof Error) {
+                                emitter.fail(throwable);
+                                return;
+                            }
+                        } else {
+                            try {
+                                resultBuilder.data(fieldHelper.transformOrAdaptResponse(result, dfe));
+                            } catch (AbstractDataFetcherException te) {
+                                te.appendDataFetcherResult(resultBuilder, dfe);
+                            }
+                        }
+                        emitter.complete(resultBuilder.build());
+                    })
+                    .onCancellation().invoke(() -> {
+                        deactivate(requestContext);
+                    })
+                    .onTermination().invoke(() -> {
+                        deactivate(requestContext);
+                    })
+                    .subscribe()
+                    .asCompletionStage();
+        } finally {
+            deactivate(requestContext);
+        }
+    }
+
+    private void deactivate(ManagedContext requestContext) {
+        SmallRyeContextManager.clearCurrentSmallRyeContext();
+        requestContext.deactivate();
     }
 
     protected abstract Uni<?> handleUserMethodCall(DataFetchingEnvironment dfe, final Object[] transformedArguments)
@@ -76,7 +98,7 @@ public abstract class AbstractAsyncDataFetcher<K, T> extends AbstractDataFetcher
     protected CompletionStage<List<T>> invokeBatch(DataFetchingEnvironment dfe, Object[] arguments) {
         ManagedContext requestContext = Arc.container().requestContext();
         try {
-            BlockingHelper.reactivate(requestContext, dfe);
+            RequestContextHelper.reactivate(requestContext, dfe);
             return handleUserBatchLoad(dfe, arguments)
                     .subscribe().asCompletionStage();
         } catch (Exception ex) {

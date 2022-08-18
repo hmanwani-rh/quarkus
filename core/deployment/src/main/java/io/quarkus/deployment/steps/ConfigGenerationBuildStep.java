@@ -3,6 +3,7 @@ package io.quarkus.deployment.steps;
 import static io.quarkus.deployment.configuration.ConfigMappingUtils.processExtensionConfigMapping;
 import static io.quarkus.deployment.steps.ConfigBuildSteps.SERVICES_PREFIX;
 import static io.quarkus.deployment.util.ServiceUtil.classNamesNamedIn;
+import static io.quarkus.runtime.configuration.ConfigUtils.QUARKUS_BUILD_TIME_RUNTIME_PROPERTIES;
 import static io.smallrye.config.ConfigMappings.ConfigClassWithPrefix.configClassWithPrefix;
 import static io.smallrye.config.SmallRyeConfig.SMALLRYE_CONFIG_LOCATIONS;
 import static java.util.stream.Collectors.toList;
@@ -29,6 +30,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.io.FilenameUtils;
 import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
+import org.eclipse.microprofile.config.ConfigValue;
 import org.eclipse.microprofile.config.spi.ConfigSource;
 import org.eclipse.microprofile.config.spi.ConfigSourceProvider;
 
@@ -59,22 +61,21 @@ import io.quarkus.deployment.builditem.nativeimage.NativeImageResourceBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.deployment.configuration.BuildTimeConfigurationReader;
 import io.quarkus.deployment.configuration.RunTimeConfigurationGenerator;
-import io.quarkus.deployment.configuration.definition.ClassDefinition;
-import io.quarkus.deployment.configuration.definition.RootDefinition;
-import io.quarkus.deployment.logging.LoggingSetupBuildItem;
+import io.quarkus.deployment.pkg.steps.NativeOrNativeSourcesBuild;
+import io.quarkus.deployment.recording.RecorderContext;
 import io.quarkus.gizmo.ClassCreator;
 import io.quarkus.gizmo.ClassOutput;
 import io.quarkus.runtime.LaunchMode;
-import io.quarkus.runtime.annotations.ConfigPhase;
 import io.quarkus.runtime.annotations.StaticInitSafe;
 import io.quarkus.runtime.configuration.ConfigDiagnostic;
 import io.quarkus.runtime.configuration.ConfigRecorder;
 import io.quarkus.runtime.configuration.ConfigUtils;
-import io.quarkus.runtime.configuration.ProfileManager;
+import io.quarkus.runtime.configuration.QuarkusConfigValue;
 import io.quarkus.runtime.configuration.RuntimeOverrideConfigSource;
 import io.smallrye.config.ConfigMappings.ConfigClassWithPrefix;
 import io.smallrye.config.ConfigSourceFactory;
 import io.smallrye.config.PropertiesLocationConfigSourceFactory;
+import io.smallrye.config.SmallRyeConfig;
 
 public class ConfigGenerationBuildStep {
 
@@ -88,18 +89,45 @@ public class ConfigGenerationBuildStep {
     }
 
     @BuildStep
-    GeneratedResourceBuildItem runtimeDefaultsConfig(List<RunTimeConfigurationDefaultBuildItem> runTimeDefaults,
-            BuildProducer<NativeImageResourceBuildItem> nativeImageResourceBuildItemBuildProducer)
-            throws IOException {
-        Properties p = new Properties();
-        for (var e : runTimeDefaults) {
-            p.setProperty(e.getKey(), e.getValue());
+    void buildTimeRunTimeConfig(
+            ConfigurationBuildItem configItem,
+            BuildProducer<GeneratedResourceBuildItem> generatedResource,
+            BuildProducer<NativeImageResourceBuildItem> nativeImageResource) throws Exception {
+
+        Map<String, String> buildTimeRunTimeValues = configItem.getReadResult().getBuildTimeRunTimeValues();
+        Properties properties = new Properties();
+        for (Map.Entry<String, String> entry : buildTimeRunTimeValues.entrySet()) {
+            properties.setProperty(entry.getKey(), entry.getValue());
         }
+
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        p.store(out, null);
-        nativeImageResourceBuildItemBuildProducer
-                .produce(new NativeImageResourceBuildItem(ConfigUtils.QUARKUS_RUNTIME_CONFIG_DEFAULTS_PROPERTIES));
-        return new GeneratedResourceBuildItem(ConfigUtils.QUARKUS_RUNTIME_CONFIG_DEFAULTS_PROPERTIES, out.toByteArray());
+        properties.store(out, null);
+        generatedResource.produce(new GeneratedResourceBuildItem(QUARKUS_BUILD_TIME_RUNTIME_PROPERTIES, out.toByteArray()));
+        nativeImageResource.produce(new NativeImageResourceBuildItem(QUARKUS_BUILD_TIME_RUNTIME_PROPERTIES));
+    }
+
+    @BuildStep
+    void runtimeDefaultsConfig(
+            ConfigurationBuildItem configItem,
+            List<RunTimeConfigurationDefaultBuildItem> runTimeDefaults,
+            BuildProducer<GeneratedResourceBuildItem> generatedResource,
+            BuildProducer<NativeImageResourceBuildItem> nativeImageResource) throws IOException {
+
+        Properties properties = new Properties();
+        for (RunTimeConfigurationDefaultBuildItem e : runTimeDefaults) {
+            properties.setProperty(e.getKey(), e.getValue());
+        }
+
+        Map<String, String> runTimeDefaultValues = configItem.getReadResult().getRunTimeDefaultValues();
+        for (Map.Entry<String, String> entry : runTimeDefaultValues.entrySet()) {
+            properties.setProperty(entry.getKey(), entry.getValue());
+        }
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        properties.store(out, null);
+        generatedResource.produce(
+                new GeneratedResourceBuildItem(ConfigUtils.QUARKUS_RUNTIME_CONFIG_DEFAULTS_PROPERTIES, out.toByteArray()));
+        nativeImageResource.produce(new NativeImageResourceBuildItem(ConfigUtils.QUARKUS_RUNTIME_CONFIG_DEFAULTS_PROPERTIES));
     }
 
     @BuildStep
@@ -231,8 +259,14 @@ public class ConfigGenerationBuildStep {
     @BuildStep
     @Record(ExecutionTime.RUNTIME_INIT)
     public void checkForBuildTimeConfigChange(
-            ConfigRecorder recorder, ConfigurationBuildItem configItem, LoggingSetupBuildItem loggingSetupBuildItem,
+            RecorderContext recorderContext,
+            ConfigRecorder recorder,
+            ConfigurationBuildItem configItem,
             List<SuppressNonRuntimeConfigChangedWarningBuildItem> suppressNonRuntimeConfigChangedWarningItems) {
+
+        recorderContext.registerSubstitution(io.smallrye.config.ConfigValue.class, QuarkusConfigValue.class,
+                QuarkusConfigValue.Substitution.class);
+
         BuildTimeConfigurationReader.ReadResult readResult = configItem.getReadResult();
         Config config = ConfigProvider.getConfig();
 
@@ -241,15 +275,22 @@ public class ConfigGenerationBuildStep {
             excludedConfigKeys.add(item.getConfigKey());
         }
 
-        Map<String, String> values = new HashMap<>();
-        for (RootDefinition root : readResult.getAllRoots()) {
-            if (root.getConfigPhase() == ConfigPhase.BUILD_AND_RUN_TIME_FIXED ||
-                    root.getConfigPhase() == ConfigPhase.BUILD_TIME) {
+        Map<String, ConfigValue> values = new HashMap<>();
 
-                Iterable<ClassDefinition.ClassMember> members = root.getMembers();
-                handleMembers(config, values, members, root.getName() + ".", excludedConfigKeys);
+        for (final Map.Entry<String, String> entry : readResult.getAllBuildTimeValues().entrySet()) {
+            if (excludedConfigKeys.contains(entry.getKey())) {
+                continue;
             }
+            values.putIfAbsent(entry.getKey(), config.getConfigValue(entry.getKey()));
         }
+
+        for (Map.Entry<String, String> entry : readResult.getBuildTimeRunTimeValues().entrySet()) {
+            if (excludedConfigKeys.contains(entry.getKey())) {
+                continue;
+            }
+            values.put(entry.getKey(), config.getConfigValue(entry.getKey()));
+        }
+
         recorder.handleConfigChange(values);
     }
 
@@ -270,7 +311,7 @@ public class ConfigGenerationBuildStep {
     public void watchConfigFiles(BuildProducer<HotDeploymentWatchedFileBuildItem> watchedFiles) {
         List<String> configWatchedFiles = new ArrayList<>();
 
-        Config config = ConfigProvider.getConfig();
+        SmallRyeConfig config = ConfigProvider.getConfig().unwrap(SmallRyeConfig.class);
         String userDir = System.getProperty("user.dir");
 
         // Main files
@@ -280,12 +321,13 @@ public class ConfigGenerationBuildStep {
         configWatchedFiles.add(Paths.get(userDir, "config", "application.properties").toAbsolutePath().toString());
 
         // Profiles
-        String profile = ProfileManager.getActiveProfile();
-        configWatchedFiles.add(String.format("application-%s.properties", profile));
-        configWatchedFiles.add(String.format("META-INF/microprofile-config-%s.properties", profile));
-        configWatchedFiles.add(Paths.get(userDir, String.format(".env-%s", profile)).toAbsolutePath().toString());
-        configWatchedFiles.add(
-                Paths.get(userDir, "config", String.format("application-%s.properties", profile)).toAbsolutePath().toString());
+        for (String profile : config.getProfiles()) {
+            configWatchedFiles.add(String.format("application-%s.properties", profile));
+            configWatchedFiles.add(String.format("META-INF/microprofile-config-%s.properties", profile));
+            configWatchedFiles.add(Paths.get(userDir, String.format(".env-%s", profile)).toAbsolutePath().toString());
+            configWatchedFiles.add(Paths.get(userDir, "config", String.format("application-%s.properties", profile))
+                    .toAbsolutePath().toString());
+        }
 
         Optional<List<URI>> optionalLocations = config.getOptionalValues(SMALLRYE_CONFIG_LOCATIONS, URI.class);
         optionalLocations.ifPresent(locations -> {
@@ -293,7 +335,9 @@ public class ConfigGenerationBuildStep {
                 Path path = location.getScheme() != null ? Paths.get(location) : Paths.get(location.getPath());
                 if (!Files.isDirectory(path)) {
                     configWatchedFiles.add(path.toString());
-                    configWatchedFiles.add(appendProfileToFilename(path.toString(), profile));
+                    for (String profile : config.getProfiles()) {
+                        configWatchedFiles.add(appendProfileToFilename(path.toString(), profile));
+                    }
                 }
             }
         });
@@ -303,31 +347,16 @@ public class ConfigGenerationBuildStep {
         }
     }
 
+    @BuildStep(onlyIf = NativeOrNativeSourcesBuild.class)
+    @Record(ExecutionTime.RUNTIME_INIT)
+    void warnDifferentProfileUsedBetweenBuildAndRunTime(ConfigRecorder configRecorder) {
+        SmallRyeConfig config = ConfigProvider.getConfig().unwrap(SmallRyeConfig.class);
+        configRecorder.handleNativeProfileChange(config.getProfiles());
+    }
+
     private String appendProfileToFilename(String path, String activeProfile) {
         String pathWithoutExtension = FilenameUtils.removeExtension(path);
         return String.format("%s-%s.%s", pathWithoutExtension, activeProfile, FilenameUtils.getExtension(path));
-    }
-
-    private void handleMembers(Config config, Map<String, String> values, Iterable<ClassDefinition.ClassMember> members,
-            String prefix, Set<String> excludedConfigKeys) {
-        for (ClassDefinition.ClassMember member : members) {
-            if (member instanceof ClassDefinition.ItemMember) {
-                ClassDefinition.ItemMember itemMember = (ClassDefinition.ItemMember) member;
-                String propertyName = prefix + member.getPropertyName();
-                if (excludedConfigKeys.contains(propertyName)) {
-                    continue;
-                }
-                Optional<String> val = config.getOptionalValue(propertyName, String.class);
-                if (val.isPresent()) {
-                    values.put(propertyName, val.get());
-                } else {
-                    values.put(propertyName, itemMember.getDefaultValue());
-                }
-            } else if (member instanceof ClassDefinition.GroupMember) {
-                handleMembers(config, values, ((ClassDefinition.GroupMember) member).getGroupDefinition().getMembers(),
-                        prefix + member.getDescriptor().getName() + ".", excludedConfigKeys);
-            }
-        }
     }
 
     private static Set<String> discoverService(
