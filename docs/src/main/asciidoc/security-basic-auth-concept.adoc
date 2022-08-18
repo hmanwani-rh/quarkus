@@ -9,7 +9,7 @@ The header is specified as `Authorization: Basic <credentials>`, where credentia
 
 ====
 .Example
- 
+
 If the user name is `Alice` and the password is `secret`, the HTTP authorization header would be `Authorization: Basic QWxjZTpzZWNyZXQ=`, where `QWxjZTpzZWNyZXQ=` is a Base64 encoded representation of the `Alice:secret` string.
 ====
  
